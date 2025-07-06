@@ -139,6 +139,7 @@ export async function runIndexer() {
           /* ④ chartData push */
           const amountIn = -inΔ;
           const amountOut = outΔ;
+          const price = toFloat(amountOut) / toFloat(amountIn);
           chartData.push({
             timestamp: tx.blockTime!,
             signature: tx.transaction.signatures[0],
@@ -146,12 +147,14 @@ export async function runIndexer() {
             swappedTo: preDst.mint,
             amountIn: toFloat(amountIn),
             amountOut: toFloat(amountOut),
-            price: toFloat(amountOut) / toFloat(amountIn),
+            price,
           });
 
           console.log(
             `✅ [${new Date(tx.blockTime! * 1000).toLocaleTimeString()}] ` +
-              `스왑: ${toFloat(amountIn)} → ${toFloat(amountOut)}`
+              `스왑: ${toFloat(amountIn)} → ${toFloat(
+                amountOut
+              )}, price: ${price}`
           );
         }
       }
