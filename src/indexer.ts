@@ -50,6 +50,15 @@ function readAddressFromFile(filepath: string): string {
   }
 }
 
+function diffAmount(
+  before: { uiTokenAmount: { amount: string } } | undefined,
+  after: { uiTokenAmount: { amount: string } } | undefined
+) {
+  const a = after ? BigInt(after.uiTokenAmount.amount) : 0n;
+  const b = before ? BigInt(before.uiTokenAmount.amount) : 0n;
+  return a - b; // BigInt 양·음수
+}
+
 // --- 메인 인덱서 로직 ---
 export async function runIndexer() {
   const connection = new Connection(RPC_URL!, "confirmed");
@@ -67,6 +76,9 @@ export async function runIndexer() {
 
   console.log(`🚀 미니 인덱서 시작. 풀 주소: ${swapAccountAddress.toBase58()}`);
   console.log(`🔍 ${POLLING_INTERVAL_MS / 1000}초마다 새 거래를 확인합니다...`);
+
+  const DECIMALS = 9n;
+  const toFloat = (x: bigint) => Number(x) / 10 ** Number(DECIMALS);
 
   setInterval(async () => {
     try {
@@ -104,46 +116,46 @@ export async function runIndexer() {
           const post = tx.meta!.postTokenBalances!;
 
           // 계정 인덱스 → balance delta(uiAmount) 매핑
-          const deltaByMint = new Map<string, number>();
+          const deltaByMint = new Map<string, bigint>();
 
           for (const bal of pre) {
             const after = post.find((p) => p.accountIndex === bal.accountIndex);
-            const delta =
-              (after?.uiTokenAmount.uiAmount ?? 0) -
-              (bal.uiTokenAmount.uiAmount ?? 0);
-
-            if (delta !== 0) {
+            const delta = diffAmount(bal, after);
+            if (delta !== 0n) {
               deltaByMint.set(
                 bal.mint,
-                (deltaByMint.get(bal.mint) || 0) + delta
+                (deltaByMint.get(bal.mint) || 0n) + delta
               );
             }
           }
 
           // 음수(보낸 쪽), 양수(받은 쪽) 중 절댓값이 큰 두 Mint 추출
-          const sorted = [...deltaByMint.entries()].sort((a, b) => a[1] - b[1]);
-          if (sorted.length < 2) continue;
+          const sorted = [...deltaByMint.entries()].sort((a, b) =>
+            a[1] < b[1] ? -1 : 1
+          );
 
-          const [fromMint, fromDelta] = sorted[0]; // 가장 음수 → amountIn
-          const [toMint, toDelta] = sorted[sorted.length - 1]; // 가장 양수 → amountOut
-          const amountIn = Math.abs(fromDelta);
-          const amountOut = toDelta;
+          const [fromMint, fromDelta] = sorted[0]; // 가장 음수
+          const [toMint, toDelta] = sorted[sorted.length - 1]; // 가장 양수
+
+          const amountIn = fromDelta < 0n ? -fromDelta : 0n; // BigInt+
+          const amountOut = toDelta; // BigInt+
 
           /** ---------- 차트 데이터 push ---------- */
+
           if (amountIn > 0 && amountOut > 0) {
             chartData.push({
               timestamp: tx.blockTime!,
               signature: tx.transaction.signatures[0],
               swappedFrom: fromMint,
               swappedTo: toMint,
-              amountIn,
-              amountOut,
-              price: amountOut / amountIn,
+              amountIn: toFloat(amountIn),
+              amountOut: toFloat(amountOut),
+              price: toFloat(amountOut) / toFloat(amountIn),
             });
 
             console.log(
               `✅ [${new Date(tx.blockTime! * 1000).toLocaleTimeString()}] ` +
-                `스왑 감지: ${amountIn.toFixed(2)} → ${amountOut.toFixed(2)}`
+                `스왑 감지: ${toFloat(amountIn)} → ${toFloat(amountOut)}`
             );
           }
         }
