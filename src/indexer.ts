@@ -3,12 +3,14 @@ import {
   PublicKey,
   ParsedTransactionWithMeta,
   Keypair,
+  PartiallyDecodedInstruction,
 } from "@solana/web3.js";
 import * as fs from "fs";
 import path from "path";
 import * as dotenv from "dotenv";
 import { TOKEN_SWAP_PROGRAM_ID } from "@solana/spl-token-swap";
 import { decodeSwapInstruction } from "./utils/decodeSwap.js";
+import { indexOfKey, toPubkeyArray } from "./utils/common.js";
 
 // .env 파일의 환경 변수를 process.env로 로드합니다.
 dotenv.config();
@@ -89,9 +91,9 @@ export async function runIndexer() {
           limit: 40,
         }
       );
-      console.log("[DEBUG] 새 서명:", signatures.length);
 
       if (signatures.length === 0) return;
+      console.log("[DEBUG] 새 서명:", signatures.length);
 
       lastKnownSignature = signatures[0].signature;
       const transactions = await connection.getParsedTransactions(
@@ -100,73 +102,57 @@ export async function runIndexer() {
       );
 
       for (const tx of transactions.reverse()) {
-        // 오래된 순서부터 처리
         if (!tx) continue;
 
-        // swap 프로그램 호출 인스트럭션만 필터링
-        const swapInstructions = tx.transaction.message.instructions.filter(
-          (i) => i.programId.equals(TOKEN_SWAP_PROGRAM_ID)
-        );
+        const pre = tx.meta?.preTokenBalances ?? [];
+        const post = tx.meta?.postTokenBalances ?? [];
+        if (!pre.length || !post.length) continue; // 토큰 변화 없는 TX
 
-        console.log(
-          "[DEBUG] tx",
-          tx.transaction.signatures[0].slice(0, 6),
-          " → swapInstr",
-          swapInstructions.length
-        );
+        /* ── 메시지 accountKey 배열을 PublicKey[] 로 정규화 ── */
+        const msgKeys = toPubkeyArray(tx.transaction.message as any);
 
-        for (const inst of swapInstructions) {
-          // PartiallyDecodedInstruction 타입: data(base58) 와 계정 인덱스 보유
-          const decoded = decodeSwapInstruction((inst as any).data);
-          if (!decoded) continue; // 태그가 1(Swap)이 아니면 스킵
+        /* ── 이 TX 안의 spl-token-swap 인스트럭션들 ── */
+        const swaps = tx.transaction.message.instructions.filter((i) =>
+          i.programId.equals(TOKEN_SWAP_PROGRAM_ID)
+        ) as PartiallyDecodedInstruction[];
 
-          /** ---------- 토큰 밸런스 변화 계산 ---------- */
-          const pre = tx.meta!.preTokenBalances!;
-          const post = tx.meta!.postTokenBalances!;
+        for (const inst of swaps) {
+          /* ① Swap 태그 확인 */
+          if (!decodeSwapInstruction(inst.data)) continue;
 
-          // 계정 인덱스 → balance delta(uiAmount) 매핑
-          const deltaByMint = new Map<string, bigint>();
+          /* ② userSource / Destination 인덱스 찾기 */
+          const userSrcIdx = indexOfKey(msgKeys, inst.accounts[3]); // userSource
+          const userDstIdx = indexOfKey(msgKeys, inst.accounts[6]); // userDestination
+          if (userSrcIdx < 0 || userDstIdx < 0) continue; // 방어
 
-          for (const bal of pre) {
-            const after = post.find((p) => p.accountIndex === bal.accountIndex);
-            const delta = diffAmount(bal, after);
-            if (delta !== 0n) {
-              deltaByMint.set(
-                bal.mint,
-                (deltaByMint.get(bal.mint) || 0n) + delta
-              );
-            }
-          }
+          /* ③ balance diff (BigInt) */
+          const preSrc = pre.find((b) => b.accountIndex === userSrcIdx);
+          const postSrc = post.find((b) => b.accountIndex === userSrcIdx);
+          const preDst = pre.find((b) => b.accountIndex === userDstIdx);
+          const postDst = post.find((b) => b.accountIndex === userDstIdx);
+          if (!preSrc || !postSrc || !preDst || !postDst) continue;
 
-          // 음수(보낸 쪽), 양수(받은 쪽) 중 절댓값이 큰 두 Mint 추출
-          const sorted = [...deltaByMint.entries()].sort((a, b) =>
-            a[1] < b[1] ? -1 : 1
+          const inΔ = diffAmount(preSrc, postSrc); // 음수
+          const outΔ = diffAmount(preDst, postDst); // 양수
+          if (inΔ >= 0n || outΔ <= 0n) continue; // 스왑 아님
+
+          /* ④ chartData push */
+          const amountIn = -inΔ;
+          const amountOut = outΔ;
+          chartData.push({
+            timestamp: tx.blockTime!,
+            signature: tx.transaction.signatures[0],
+            swappedFrom: preSrc.mint,
+            swappedTo: preDst.mint,
+            amountIn: toFloat(amountIn),
+            amountOut: toFloat(amountOut),
+            price: toFloat(amountOut) / toFloat(amountIn),
+          });
+
+          console.log(
+            `✅ [${new Date(tx.blockTime! * 1000).toLocaleTimeString()}] ` +
+              `스왑: ${toFloat(amountIn)} → ${toFloat(amountOut)}`
           );
-
-          const [fromMint, fromDelta] = sorted[0]; // 가장 음수
-          const [toMint, toDelta] = sorted[sorted.length - 1]; // 가장 양수
-
-          const amountIn = fromDelta < 0n ? -fromDelta : 0n; // BigInt+
-          const amountOut = toDelta; // BigInt+
-
-          /** ---------- 차트 데이터 push ---------- */
-
-          if (amountIn > 0 && amountOut > 0) {
-            chartData.push({
-              timestamp: tx.blockTime!,
-              signature: tx.transaction.signatures[0],
-              swappedFrom: fromMint,
-              swappedTo: toMint,
-              amountIn: toFloat(amountIn),
-              amountOut: toFloat(amountOut),
-              price: toFloat(amountOut) / toFloat(amountIn),
-            });
-
-            console.log(
-              `✅ [${new Date(tx.blockTime! * 1000).toLocaleTimeString()}] ` +
-                `스왑 감지: ${toFloat(amountIn)} → ${toFloat(amountOut)}`
-            );
-          }
         }
       }
     } catch (error) {
