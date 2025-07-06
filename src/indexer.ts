@@ -12,15 +12,14 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 // --- 설정 (환경 변수에서 로드) ---
-const RPC_URL = process.env.RPC_URL;
-const KEY_DIR = process.env.KEY_DIR;
+const RPC_URL = process.env.RPC_URL || "http://localhost:8899";
 const SWAP_ACCOUNT_KEY_PATH = process.env.SWAP_ACCOUNT_KEY_PATH;
 const POLLING_INTERVAL_MS = parseInt(process.env.POLLING_INTERVAL_MS || "5000");
 
 // 필수 환경 변수 확인
-if (!RPC_URL || !KEY_DIR || !SWAP_ACCOUNT_KEY_PATH) {
+if (!SWAP_ACCOUNT_KEY_PATH) {
   throw new Error(
-    "오류: .env 파일에 RPC_URL 또는 KEY_DIR, SWAP_ACCOUNT_KEY_PATH이 설정되지 않았습니다."
+    "오류: .env 파일에 KEY_DIR 또는 SWAP_ACCOUNT_KEY_PATH이 설정되지 않았습니다."
   );
 }
 
@@ -37,13 +36,12 @@ interface SwapData {
 export const chartData: SwapData[] = [];
 
 // --- 헬퍼 함수 ---
-function readAddressFromFile(filename: string): string {
-  const fullPath = path.resolve(KEY_DIR!, filename); // KEY_DIR는 위에서 존재 여부를 확인했음
+function readAddressFromFile(filepath: string): string {
   try {
-    return fs.readFileSync(fullPath, { encoding: "utf8" }).trim();
+    return fs.readFileSync(filepath, { encoding: "utf8" }).trim();
   } catch (e) {
     console.error(
-      `오류: ${fullPath} 파일을 읽을 수 없습니다. KEY_DIR 경로를 확인하세요.`,
+      `오류: ${filepath} 파일을 읽을 수 없습니다. KEY_DIR 경로를 확인하세요.`,
       e
     );
     process.exit(1);
