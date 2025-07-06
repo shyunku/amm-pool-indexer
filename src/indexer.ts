@@ -86,9 +86,10 @@ export async function runIndexer() {
         swapAccountAddress,
         {
           until: lastKnownSignature,
-          limit: 20,
+          limit: 40,
         }
       );
+      console.log("[DEBUG] 새 서명:", signatures.length);
 
       if (signatures.length === 0) return;
 
@@ -106,6 +107,14 @@ export async function runIndexer() {
         const swapInstructions = tx.transaction.message.instructions.filter(
           (i) => i.programId.equals(TOKEN_SWAP_PROGRAM_ID)
         );
+
+        console.log(
+          "[DEBUG] tx",
+          tx.transaction.signatures[0].slice(0, 6),
+          " → swapInstr",
+          swapInstructions.length
+        );
+
         for (const inst of swapInstructions) {
           // PartiallyDecodedInstruction 타입: data(base58) 와 계정 인덱스 보유
           const decoded = decodeSwapInstruction((inst as any).data);
