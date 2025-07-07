@@ -21,10 +21,9 @@ app.use((req, res, next) => {
 
 // 차트 데이터 엔드포인트
 app.get("/v1/main/chart", (req: Request, res: Response) => {
-  // console.log(
-  //   `[/v1/main/chart] API called, returning ${chartData.length} data points.`
-  // );
-  res.json(chartData);
+  const count = req.query.count ?? 100;
+  const candles = chartData.slice(-count);
+  res.json(candles);
 });
 
 // (이하 다른 더미 엔드포인트들은 필요에 따라 유지)
