@@ -19,6 +19,7 @@ import * as dotenv from "dotenv";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import path from "path";
+import type { Database as SqliteDB } from "better-sqlite3";
 import Database from "better-sqlite3";
 
 dotenv.config();
@@ -67,7 +68,7 @@ const seen = new Set<string>();
 export const chartData: SwapData[] = [];
 let lastSavedSignature: string | null = null;
 
-let db!: Database; // ★ DB 핸들
+let db!: SqliteDB; // ★ DB 핸들
 let lastFlushed = 0; // ★ 마지막 commit 된 chartData.length
 
 /** 새 row들만 INSERT */
@@ -310,7 +311,7 @@ export async function runIndexer() {
 `);
 
   /* 1) 기존 데이터 메모리로 로드 */
-  const rows = db
+  const rows: any = db
     .prepare("SELECT * FROM swap_data ORDER BY timestamp ASC")
     .all();
   for (const r of rows) {
