@@ -174,7 +174,7 @@ export async function handleTx(
       ? toFloatA(amountOut)
       : toFloatB(amountOut);
 
-    const timestamp = tx.blockTime ?? Math.floor(Date.now() / 1e3);
+    const timestamp = tx.blockTime ?? Date.now() / 1e3;
     chartData.push({
       timestamp, // Unix epoch (s)
       signature: signature,
