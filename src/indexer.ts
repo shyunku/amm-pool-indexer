@@ -19,6 +19,7 @@ import * as dotenv from "dotenv";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import path from "path";
+import Database from "better-sqlite3";
 
 dotenv.config();
 
@@ -65,6 +66,39 @@ const seen = new Set<string>();
 /* ---------- Savings ---------- */
 export const chartData: SwapData[] = [];
 let lastSavedSignature: string | null = null;
+
+let db!: Database; // ★ DB 핸들
+let lastFlushed = 0; // ★ 마지막 commit 된 chartData.length
+
+/** 새 row들만 INSERT */
+function flushToDB() {
+  if (!db || chartData.length === lastFlushed) return;
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO swap_data
+    (timestamp,signature,swappedFrom,swappedTo,
+     amountBase,amountQuote,amountIn,amountOut,
+     price,poolPrice)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`);
+
+  db.transaction(() => {
+    for (let i = lastFlushed; i < chartData.length; i++) {
+      const c = chartData[i];
+      insert.run(
+        c.timestamp,
+        c.signature,
+        c.swappedFrom,
+        c.swappedTo,
+        c.amountBase,
+        c.amountQuote,
+        c.amountIn,
+        c.amountOut,
+        c.price,
+        c.poolPrice
+      );
+    }
+  })();
+  lastFlushed = chartData.length;
+}
 
 async function backfill(fromSig: string | null) {
   let before: string | undefined = undefined;
@@ -257,10 +291,51 @@ export async function runIndexer() {
     swapAccountPk.toBase58()
   );
 
+  /* ---------- SQLite 초기화 ---------- */
+  const DB_PATH = path.resolve(keyDirPath, "cache.db");
+  db = new Database(DB_PATH);
+  db.exec(`
+  CREATE TABLE IF NOT EXISTS swap_data (
+    timestamp  INTEGER,
+    signature  TEXT PRIMARY KEY,
+    swappedFrom TEXT,
+    swappedTo   TEXT,
+    amountBase  REAL,
+    amountQuote REAL,
+    amountIn    REAL,
+    amountOut   REAL,
+    price       REAL,
+    poolPrice   REAL
+  );
+`);
+
+  /* 1) 기존 데이터 메모리로 로드 */
+  const rows = db
+    .prepare("SELECT * FROM swap_data ORDER BY timestamp ASC")
+    .all();
+  for (const r of rows) {
+    chartData.push(r as SwapData);
+    seen.add(r.signature);
+  }
+  lastFlushed = chartData.length;
+  if (rows.length) lastSavedSignature = rows[rows.length - 1].signature;
+  console.log(`💾 ${rows.length} rows restored from ${DB_PATH}`);
+
   /* 1️⃣ 부팅 시 백필 */
   await backfill(lastSavedSignature);
 
-  /* 2️⃣ 실시간 구독 */
+  /* 2️⃣ 5초마다 SQLite로 flush */
+  setInterval(flushToDB, 5000);
+
+  /* 종료 시 마지막 flush */
+  const graceful = () => {
+    flushToDB();
+    process.exit();
+  };
+  process.on("SIGINT", graceful);
+  process.on("SIGTERM", graceful);
+
+  /* 실시간 구독 */
   connection.onLogs(
     TOKEN_SWAP_PROGRAM_ID,
     async (l, ctx) => {

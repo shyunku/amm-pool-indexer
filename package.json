@@ -18,12 +18,14 @@
     "@solana/web3.js": "^1.98.2",
     "@types/express": "^5.0.3",
     "@types/yargs": "^17.0.33",
+    "better-sqlite3": "^12.2.0",
     "bs58": "^6.0.0",
     "dotenv": "^17.0.1",
     "express": "^5.1.0",
     "yargs": "^18.0.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.10",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
