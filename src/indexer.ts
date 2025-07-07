@@ -35,6 +35,7 @@ interface SwapData {
   amountIn: number;
   amountOut: number;
   price: number;
+  buySell: "buy" | "sell";
   poolPrice: number;
 }
 
@@ -98,6 +99,8 @@ function flushToDB() {
       );
     }
   })();
+
+  console.log(`Saved ${chartData.length - lastFlushed} items.`);
   lastFlushed = chartData.length;
 }
 
@@ -219,12 +222,13 @@ export async function handleTx(
       amountQuote: toFloatB(amountQuote), // Banana
       amountIn: absAmountIn,
       amountOut: absAmountOut,
+      buySell: baseIsApple ? "sell" : "buy",
       price,
       poolPrice,
     });
 
     console.log(
-      `✅ [${new Date(tx.blockTime! * 1000).toLocaleTimeString()}]` +
+      `✅ [${new Date(tx.blockTime! * 1000).toLocaleString()}]` +
         ` 스왑: ${absAmountIn} → ${absAmountOut}, price ${price}`
     );
   }
@@ -325,8 +329,8 @@ export async function runIndexer() {
   /* 1️⃣ 부팅 시 백필 */
   await backfill(lastSavedSignature);
 
-  /* 2️⃣ 5초마다 SQLite로 flush */
-  setInterval(flushToDB, 5000);
+  /* 2️⃣ 10초마다 SQLite로 flush */
+  setInterval(flushToDB, 10000);
 
   /* 종료 시 마지막 flush */
   const graceful = () => {
