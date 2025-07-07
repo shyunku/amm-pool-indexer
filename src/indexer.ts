@@ -51,7 +51,6 @@ const seen = new Set<string>();
 /* ---------- Savings ---------- */
 export const chartData: SwapData[] = [];
 let lastSavedSignature: string | null = null;
-let lastProcessedSlot = 0; // slot-gap 방식 쓸 때
 
 async function backfill(fromSig: string | null) {
   let before: string | undefined = undefined;
@@ -83,10 +82,6 @@ export async function handleTx(
   signature: string,
   slot?: number
 ): Promise<void> {
-  if (slot && slot > lastProcessedSlot) {
-    lastProcessedSlot = slot;
-  }
-
   // 0. 중복 방지
   if (seen.has(signature)) return;
   seen.add(signature);
@@ -190,16 +185,5 @@ export async function runIndexer() {
   rpcWs.on("open", async () => {
     console.log("🔄  WebSocket re-connected. Running backfill…");
     await backfill(lastSavedSignature);
-  });
-
-  /* --------------- (선택) slot-gap 백업 안전장치 --------------- */
-  connection.onSlotChange(async (info) => {
-    if (info.slot - lastProcessedSlot > 10) {
-      // 10 slot 이상 공백 → 뭔가 놓쳤다
-      console.warn(
-        `⚠️  Slot gap ${info.slot - lastProcessedSlot}. Running backfill…`
-      );
-      await backfill(lastSavedSignature);
-    }
   });
 }
