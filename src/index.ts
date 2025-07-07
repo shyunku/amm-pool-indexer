@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 // 차트 데이터 엔드포인트
 app.get("/v1/main/chart", (req: Request, res: Response) => {
   const count = req.query.count ?? 100;
-  const candles = [...chartData].reverse().slice(-count);
+  const candles = chartData.slice(-count);
   res.json(candles);
 });
 
