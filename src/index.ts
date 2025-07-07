@@ -21,8 +21,20 @@ app.use((req, res, next) => {
 
 // 차트 데이터 엔드포인트
 app.get("/v1/main/chart", (req: Request, res: Response) => {
-  const count = req.query.count ?? 100;
-  const candles = chartData.slice(-count);
+  const count = req.query.count ?? 10;
+  let after: any = req.query.after;
+  if (after == "null" || after == "undefined") after = null;
+
+  let candles = chartData.slice(-count);
+  if (after) {
+    for (let i = 0; i < candles.length; i++) {
+      const candle = candles[i];
+      if (candle.signature === after) {
+        candles = candles.slice(i + 1);
+        break;
+      }
+    }
+  }
   res.json(candles);
 });
 
