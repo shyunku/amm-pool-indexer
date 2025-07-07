@@ -105,7 +105,10 @@ function flushToDB() {
 }
 
 async function backfill(fromSig: string | null) {
-  let before: string | undefined = undefined;
+  let before: string | undefined;
+  const buf: { signature: string; slot: number }[] = [];
+
+  // --- 전체 시그니처를 buf 에 쌓기 ---
   while (true) {
     const sigs = await connection.getSignaturesForAddress(swapAccountPk, {
       before,
@@ -113,12 +116,14 @@ async function backfill(fromSig: string | null) {
       limit: 1_000,
     });
     if (!sigs.length) break;
+    buf.push(...sigs); // new→old 그대로 push
+    before = sigs[sigs.length - 1].signature; // 다음 페이지 포인터 = 가장 오래된
+  }
 
-    for (let i = sigs.length - 1; i >= 0; i--) {
-      const s = sigs[i];
-      await handleTx(s.signature, s.slot);
-    }
-    before = sigs[sigs.length - 1].signature; // 직전 batch 중 가장 옛것
+  // --- 가장 오래된 → 최신 순으로 처리 ---
+  for (let i = buf.length - 1; i >= 0; i--) {
+    const { signature, slot } = buf[i]; // buf[끝] 이 제일 과거
+    await handleTx(signature, slot);
   }
 }
 
