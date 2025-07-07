@@ -35,7 +35,7 @@ interface SwapData {
   amountIn: number;
   amountOut: number;
   price: number;
-  buySell: "buy" | "sell";
+  buysell: "buy" | "sell";
   poolPrice: number;
 }
 
@@ -79,8 +79,8 @@ function flushToDB() {
     INSERT OR IGNORE INTO swap_data
     (timestamp,signature,swappedFrom,swappedTo,
      amountBase,amountQuote,amountIn,amountOut,
-     price,poolPrice)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`);
+     price,poolPrice,buysell)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
 
   db.transaction(() => {
     for (let i = lastFlushed; i < chartData.length; i++) {
@@ -95,7 +95,8 @@ function flushToDB() {
         c.amountIn,
         c.amountOut,
         c.price,
-        c.poolPrice
+        c.poolPrice,
+        c.buysell
       );
     }
   })();
@@ -227,7 +228,7 @@ export async function handleTx(
       amountQuote: toFloatB(amountQuote), // Banana
       amountIn: absAmountIn,
       amountOut: absAmountOut,
-      buySell: baseIsApple ? "sell" : "buy",
+      buysell: baseIsApple ? "sell" : "buy",
       price,
       poolPrice,
     });
@@ -315,7 +316,8 @@ export async function runIndexer() {
     amountIn    REAL,
     amountOut   REAL,
     price       REAL,
-    poolPrice   REAL
+    poolPrice   REAL,
+    buysell     INTEGER,
   );
 `);
 
