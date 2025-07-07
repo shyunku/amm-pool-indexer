@@ -114,11 +114,11 @@ async function backfill(fromSig: string | null) {
     });
     if (!sigs.length) break;
 
-    for (const s of sigs.reverse()) {
-      // 오래된 → 최신
+    for (let i = sigs.length - 1; i >= 0; i--) {
+      const s = sigs[i];
       await handleTx(s.signature, s.slot);
     }
-    before = sigs[0].signature; // 직전 batch 중 가장 옛것
+    before = sigs[sigs.length - 1].signature; // 직전 batch 중 가장 옛것
   }
 }
 
