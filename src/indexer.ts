@@ -9,9 +9,16 @@ import {
 } from "@solana/web3.js";
 import { TOKEN_SWAP_PROGRAM_ID } from "@solana/spl-token-swap";
 import { decodeSwapInstruction } from "./utils/decodeSwap.js";
-import { indexOfKey, toPubkeyArray } from "./utils/common.js";
+import {
+  indexOfKey,
+  readAddressFromFile,
+  toPubkeyArray,
+} from "./utils/common.js";
 import * as fs from "fs";
 import * as dotenv from "dotenv";
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
+import path from "path";
 
 dotenv.config();
 
@@ -21,6 +28,8 @@ interface SwapData {
   signature: string;
   swappedFrom: string;
   swappedTo: string;
+  amountBase: number;
+  amountQuote: number;
   amountIn: number;
   amountOut: number;
   price: number;
@@ -28,15 +37,11 @@ interface SwapData {
 
 /* ---------- 설정 ---------- */
 const RPC_URL = process.env.RPC_URL || "http://localhost:8899";
-const SWAP_ACCOUNT_KEY_PATH = process.env.SWAP_ACCOUNT_KEY_PATH;
-if (!SWAP_ACCOUNT_KEY_PATH) throw new Error("SWAP_ACCOUNT_KEY_PATH 누락");
 
 const connection = new Connection(RPC_URL, "confirmed");
-const swapAccountPk = Keypair.fromSecretKey(
-  Uint8Array.from(JSON.parse(fs.readFileSync(SWAP_ACCOUNT_KEY_PATH, "utf8")))
-).publicKey;
-
-console.log("🚀 WebSocket 인덱서 시작 – 풀:", swapAccountPk.toBase58());
+let swapAccountPk!: PublicKey;
+let mintAAddress!: PublicKey;
+let mintBAddress!: PublicKey;
 
 /* ---------- 유틸 ---------- */
 const DECIMALS = 9n;
@@ -129,7 +134,12 @@ export async function handleTx(
     // 3-5. 기록 & 로그
     const amountIn = -inΔ;
     const amountOut = outΔ;
-    const price = toFloat(amountOut) / toFloat(amountIn);
+
+    const srcMintStr = preSrc.mint;
+    const baseIsApple = new PublicKey(srcMintStr).equals(mintAAddress);
+    const amountBase = baseIsApple ? amountIn : amountOut; // 항상 Apple lamports
+    const amountQuote = baseIsApple ? amountOut : amountIn; // 항상 Banana lamports
+    const price = toFloat(amountQuote) / toFloat(amountBase);
 
     const timestamp = tx.blockTime ?? Math.floor(Date.now() / 1e3);
     chartData.push({
@@ -137,6 +147,8 @@ export async function handleTx(
       signature: signature,
       swappedFrom: preSrc.mint,
       swappedTo: preDst.mint,
+      amountBase: toFloat(amountBase), // 항상 Apple
+      amountQuote: toFloat(amountQuote), // 항상 Banana
       amountIn: toFloat(amountIn),
       amountOut: toFloat(amountOut),
       price,
@@ -161,6 +173,36 @@ export async function handleTx(
 }
 
 export async function runIndexer() {
+  /* ---------- CLI 옵션 파싱 ---------- */
+  const argv = await yargs(hideBin(process.argv))
+    .option("key-dir", {
+      alias: "k",
+      type: "string",
+      description: "AMM 풀 키/주소 파일이 저장된 디렉토리 경로",
+      demandOption: true,
+    })
+    .strict()
+    .parse();
+
+  const keyDirPath = argv.keyDir;
+  const swapAccountKeyPairPath = path.resolve(keyDirPath, "swap_account.json");
+
+  mintAAddress = new PublicKey(
+    readAddressFromFile(`${argv.keyDir}/mint_a.txt`)
+  );
+  mintBAddress = new PublicKey(
+    readAddressFromFile(`${argv.keyDir}/mint_b.txt`)
+  );
+
+  swapAccountPk = Keypair.fromSecretKey(
+    Uint8Array.from(JSON.parse(fs.readFileSync(swapAccountKeyPairPath, "utf8")))
+  ).publicKey;
+
+  console.log(
+    "🚀 WebSocket 인덱서 시작 - Swap Account Pubkey:",
+    swapAccountPk.toBase58()
+  );
+
   /* 1️⃣ 부팅 시 백필 */
   await backfill(lastSavedSignature);
 
@@ -183,7 +225,7 @@ export async function runIndexer() {
 
   /* b) 다시 붙었을 때 */
   rpcWs.on("open", async () => {
-    console.log("🔄  WebSocket re-connected. Running backfill…");
+    console.log("🔄  WebSocket connected. Running backfill…");
     await backfill(lastSavedSignature);
   });
 }

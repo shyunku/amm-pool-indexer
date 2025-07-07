@@ -17,9 +17,11 @@
     "@solana/spl-token-swap": "^0.4.4",
     "@solana/web3.js": "^1.98.2",
     "@types/express": "^5.0.3",
+    "@types/yargs": "^17.0.33",
     "bs58": "^6.0.0",
     "dotenv": "^17.0.1",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.10",
