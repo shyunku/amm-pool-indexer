@@ -317,7 +317,7 @@ export async function runIndexer() {
     amountOut   REAL,
     price       REAL,
     poolPrice   REAL,
-    buysell     INTEGER,
+    buysell     INTEGER
   );
 `);
 
