@@ -293,7 +293,7 @@ export async function runIndexer() {
   );
 
   /* ---------- SQLite 초기화 ---------- */
-  const DB_PATH = path.resolve(keyDirPath, "cache.db");
+  const DB_PATH = path.resolve("cache.db");
   db = new Database(DB_PATH);
   db.exec(`
   CREATE TABLE IF NOT EXISTS swap_data (
