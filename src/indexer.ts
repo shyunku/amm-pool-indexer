@@ -83,10 +83,13 @@ export async function handleTx(
   signature: string,
   slot?: number
 ): Promise<void> {
+  if (slot && slot > lastProcessedSlot) {
+    lastProcessedSlot = slot;
+  }
+
   // 0. 중복 방지
   if (seen.has(signature)) return;
   seen.add(signature);
-  if (slot) lastProcessedSlot = slot; // slot 업데이트
 
   // 1. 트랜잭션 전문 조회
   const tx = await connection.getParsedTransaction(signature, {

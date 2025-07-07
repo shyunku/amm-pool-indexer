@@ -21,9 +21,9 @@ app.use((req, res, next) => {
 
 // 차트 데이터 엔드포인트
 app.get("/v1/main/chart", (req: Request, res: Response) => {
-  console.log(
-    `[/v1/main/chart] API called, returning ${chartData.length} data points.`
-  );
+  // console.log(
+  //   `[/v1/main/chart] API called, returning ${chartData.length} data points.`
+  // );
   res.json(chartData);
 });
 
