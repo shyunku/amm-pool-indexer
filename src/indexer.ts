@@ -33,6 +33,7 @@ interface SwapData {
   amountIn: number;
   amountOut: number;
   price: number;
+  poolPrice: number;
 }
 
 /* ---------- 설정 ---------- */
@@ -42,10 +43,18 @@ const connection = new Connection(RPC_URL, "confirmed");
 let swapAccountPk!: PublicKey;
 let mintAAddress!: PublicKey;
 let mintBAddress!: PublicKey;
+let decimalsA!: number;
+let decimalsB!: number;
+let scaleA!: number; // 10 ** decimalsA
+let scaleB!: number; // 10 ** decimalsB
+
+/* ---------- ⬇ 추가: vault 계정 주소 ---------- */
+let vaultAAddress!: PublicKey;
+let vaultBAddress!: PublicKey;
 
 /* ---------- 유틸 ---------- */
-const DECIMALS = 9n;
-const toFloat = (x: bigint) => Number(x) / 10 ** Number(DECIMALS);
+const toFloatA = (x: bigint) => Number(x) / scaleA; // Apple
+const toFloatB = (x: bigint) => Number(x) / scaleB; // Banana
 const diffAmount = (bef?: any, aft?: any) =>
   (aft ? BigInt(aft.uiTokenAmount.amount) : 0n) -
   (bef ? BigInt(bef.uiTokenAmount.amount) : 0n);
@@ -137,9 +146,33 @@ export async function handleTx(
 
     const srcMintStr = preSrc.mint;
     const baseIsApple = new PublicKey(srcMintStr).equals(mintAAddress);
-    const amountBase = baseIsApple ? amountIn : amountOut; // 항상 Apple lamports
-    const amountQuote = baseIsApple ? amountOut : amountIn; // 항상 Banana lamports
-    const price = toFloat(amountQuote) / toFloat(amountBase);
+
+    /* ---------- 교체: 풀 잔고 기준 가격 ---------- */
+    // a) vault 계정 index 찾기
+    const vAIdx = indexOfKey(msgKeys, vaultAAddress);
+    const vBIdx = indexOfKey(msgKeys, vaultBAddress);
+    if (vAIdx < 0 || vBIdx < 0) continue;
+
+    // b) 스왑 직후 vault 잔고(postTokenBalances) 추출
+    const postVA = post.find((b) => b.accountIndex === vAIdx);
+    const postVB = post.find((b) => b.accountIndex === vBIdx);
+    if (!postVA || !postVB) continue;
+
+    const reserveA = BigInt(postVA.uiTokenAmount.amount); // Apple lamports
+    const reserveB = BigInt(postVB.uiTokenAmount.amount); // Banana lamports
+
+    // c) Apple-기준 가격
+    const poolPrice = toFloatB(reserveB) / toFloatA(reserveA);
+
+    // d) 기존 amountBase/Quote는 그대로 유지(원하면 삭제)
+    const amountBase = baseIsApple ? amountIn : amountOut;
+    const amountQuote = baseIsApple ? amountOut : amountIn;
+    const price = toFloatB(amountQuote) / toFloatA(amountBase);
+
+    const absAmountIn = baseIsApple ? toFloatA(amountIn) : toFloatB(amountIn);
+    const absAmountOut = baseIsApple
+      ? toFloatA(amountOut)
+      : toFloatB(amountOut);
 
     const timestamp = tx.blockTime ?? Math.floor(Date.now() / 1e3);
     chartData.push({
@@ -147,16 +180,17 @@ export async function handleTx(
       signature: signature,
       swappedFrom: preSrc.mint,
       swappedTo: preDst.mint,
-      amountBase: toFloat(amountBase), // 항상 Apple
-      amountQuote: toFloat(amountQuote), // 항상 Banana
-      amountIn: toFloat(amountIn),
-      amountOut: toFloat(amountOut),
+      amountBase: toFloatA(amountBase), // Apple
+      amountQuote: toFloatB(amountQuote), // Banana
+      amountIn: absAmountIn,
+      amountOut: absAmountOut,
       price,
+      poolPrice,
     });
 
     console.log(
       `✅ [${new Date(tx.blockTime! * 1000).toLocaleTimeString()}]` +
-        ` 스왑: ${toFloat(amountIn)} → ${toFloat(amountOut)}, price ${price}`
+        ` 스왑: ${absAmountIn} → ${absAmountOut}, price ${price}`
     );
   }
 
@@ -193,10 +227,30 @@ export async function runIndexer() {
   mintBAddress = new PublicKey(
     readAddressFromFile(`${argv.keyDir}/mint_b.txt`)
   );
+  vaultAAddress = new PublicKey(
+    readAddressFromFile(`${keyDirPath}/vault_a.txt`)
+  );
+  vaultBAddress = new PublicKey(
+    readAddressFromFile(`${keyDirPath}/vault_b.txt`)
+  );
 
   swapAccountPk = Keypair.fromSecretKey(
     Uint8Array.from(JSON.parse(fs.readFileSync(swapAccountKeyPairPath, "utf8")))
   ).publicKey;
+
+  const getMintDecimals = async (mint: PublicKey) => {
+    const info = await connection.getParsedAccountInfo(mint);
+    if (!info.value) throw new Error(`cannot fetch mint ${mint.toBase58()}`);
+    return (info.value.data as any).parsed.info.decimals as number;
+  };
+  decimalsA = await getMintDecimals(mintAAddress);
+  decimalsB = await getMintDecimals(mintBAddress);
+  scaleA = 10 ** decimalsA;
+  scaleB = 10 ** decimalsB;
+  console.log(
+    `🍎 Apple(decimals=${decimalsA})  🍌 Banana(decimals=${decimalsB})\n` +
+      `vaultA=${vaultAAddress.toBase58()}  vaultB=${vaultBAddress.toBase58()}`
+  );
 
   console.log(
     "🚀 WebSocket 인덱서 시작 - Swap Account Pubkey:",
